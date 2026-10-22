@@ -1,20 +1,857 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Frank's Math Engine · Cartesian Plane</title>
-  <style>
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-           font-family: system-ui, sans-serif; background: #fff; color: #222; }
-    h1 { font-weight: 600; margin: 0; }
-    p  { color: #888; margin: .5rem 0 0; text-align: center; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frank's Math Engine · Cartesian Plane</title>
+<meta name="description" content="笛卡尔坐标系：输入一组点 (x, y)，画在正方形网格上；x、y 的范围可以调。">
+<style>
+  :root {
+    color-scheme: light;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+    --math: "Times New Roman", Georgia, serif;
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1d2127;
+    --muted: #68707b;
+    --border: #dfe2e7;
+    --grid: #e3e6ea;
+    --frame: #c6cbd2;
+    --axis: #2b3037;
+    --tick: #59616b;
+    --point: #4f46e5;
+    --point-soft: rgba(79, 70, 229, 0.16);
+    --warn-bg: #fff6df;
+    --warn-border: #efd08a;
+    --warn-text: #6b4500;
+    --error: #c42b2b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #0e1013;
+      --card: #161a1f;
+      --text: #e5e8ec;
+      --muted: #98a1ac;
+      --border: #2b313a;
+      --grid: #272d35;
+      --frame: #3d4550;
+      --axis: #d3d9e0;
+      --tick: #a7b0bb;
+      --point: #9792ff;
+      --point-soft: rgba(151, 146, 255, 0.2);
+      --warn-bg: #2a2111;
+      --warn-border: #5c4716;
+      --warn-text: #f2ca70;
+      --error: #ff7b72;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scrollbar-gutter: stable; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
+  header { padding: 14px 20px 0; }
+  h1 { margin: 0; font-size: 20px; font-weight: 650; }
+  header p { margin: 0; color: var(--muted); }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 16px;
+    padding: 12px 20px 20px;
+    align-items: start;
+  }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+  .plot-card { padding: 6px 6px 10px; min-width: 0; }
+  .plot-wrap { height: clamp(340px, calc(100vh - 150px), 900px); }
+
+  /* 坐标图 */
+  #plot { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-select: none; }
+  #plot text { font: 12px var(--sans); }
+  #plot .axis-title text { font: italic 16px var(--math); fill: var(--axis); }
+  #plot .tip-text { font-weight: 600; fill: var(--card); }
+  .grid line { stroke: var(--grid); }
+  .frame { fill: none; stroke: var(--frame); }
+  .axis line { stroke: var(--axis); stroke-width: 1.5; }
+  .axis path { fill: var(--axis); }
+  .tick { fill: var(--tick); }
+  .pt-label { fill: var(--text); }
+  .halo { paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+  .conn { fill: none; stroke: var(--point); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; opacity: 0.6; }
+  .pt { fill: var(--point); stroke: var(--card); stroke-width: 1.5; }
+  .hover-ring { fill: var(--point-soft); stroke: var(--point); stroke-width: 1.5; }
+  .tip-bg { fill: var(--text); }
+
+  .status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; padding: 6px 10px 0; font-size: 13px; }
+  .muted { color: var(--muted); }
+  .notice {
+    margin: 8px 6px 0; padding: 8px 12px; border-radius: 8px; font-size: 13px;
+    background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text);
+  }
+
+  /* 右边的控制面板 */
+  .controls { display: grid; gap: 12px; }
+  .panel { padding: 14px 16px; }
+  .panel h2 { margin: 0 0 8px; font-size: 13px; font-weight: 650; color: var(--muted); }
+  textarea, input[type="text"], select {
+    width: 100%; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea { display: block; resize: vertical; min-height: 120px; padding: 8px 10px; font: 13px/1.5 var(--mono); }
+  input[type="text"] { padding: 5px 8px; font: 13px var(--mono); }
+  select { padding: 6px 8px; margin-top: 10px; }
+  [aria-invalid="true"] { border-color: var(--error); }
+  :focus-visible { outline: 2px solid var(--point); outline-offset: 1px; }
+  .hint, .msg { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+  .msg.error { color: var(--error); }
+  .msg:empty { display: none; }
+  code { font: 12px var(--mono); }
+  .lims { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; }
+  .lims .var { font: italic 16px var(--math); }
+  .lims .to { color: var(--muted); font-size: 13px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer; }
+  .check input { margin: 0; accent-color: var(--point); }
+
+  @media (max-width: 820px) {
+    header { padding: 12px 16px 0; }
+    main { grid-template-columns: minmax(0, 1fr); padding: 10px 16px 16px; }
+    .plot-wrap { height: clamp(300px, 96vw, 560px); }
+  }
+</style>
 </head>
 <body>
-  <main>
-    <h1>Frank's Math Engine</h1>
-    <p>Cartesian Plane</p>
-  </main>
+<header>
+  <h1>Frank's Math Engine</h1>
+  <p>Cartesian Plane · 笛卡尔坐标系</p>
+</header>
+
+<main>
+  <section class="card plot-card" aria-label="坐标图">
+    <div class="plot-wrap" id="plotWrap">
+      <svg id="plot" role="img" aria-label="笛卡尔坐标系"></svg>
+    </div>
+    <div class="status">
+      <span id="cellInfo"></span>
+      <span id="cursorInfo" class="muted"></span>
+    </div>
+    <div id="notices"></div>
+  </section>
+
+  <div class="controls">
+    <section class="card panel">
+      <h2><label for="pointsInput">点 (x, y)</label></h2>
+      <textarea id="pointsInput" rows="12" spellcheck="false" autocomplete="off" aria-describedby="pointsHelp pointsMsg"></textarea>
+      <p id="pointsHelp" class="hint">一行一个点，比如 <code>1, 2</code>；一行也可以写好几个：<code>(1, 2), (2, 4)</code>。</p>
+      <div id="pointsMsg" class="msg" aria-live="polite"></div>
+      <select id="preset" aria-label="换一组示例点">
+        <option value="">换一组示例点…</option>
+      </select>
+    </section>
+
+    <section class="card panel">
+      <h2>坐标范围</h2>
+      <div class="lims">
+        <span class="var">x</span>
+        <input id="xmin" type="text" autocomplete="off" aria-label="x 最小值">
+        <span class="to">到</span>
+        <input id="xmax" type="text" autocomplete="off" aria-label="x 最大值">
+        <span class="var">y</span>
+        <input id="ymin" type="text" autocomplete="off" aria-label="y 最小值">
+        <span class="to">到</span>
+        <input id="ymax" type="text" autocomplete="off" aria-label="y 最大值">
+      </div>
+      <p id="limMsg" class="msg error" aria-live="polite"></p>
+      <label class="check"><input type="checkbox" id="autoRange" checked> 自动范围（跟着点调整）</label>
+    </section>
+
+    <section class="card panel">
+      <h2>显示</h2>
+      <label class="check"><input type="checkbox" id="squareMode" checked> 正方形格子（x、y 同比例）</label>
+      <label class="check"><input type="checkbox" id="connect" checked> 按顺序连线</label>
+      <label class="check"><input type="checkbox" id="labels" checked> 标出每个点的坐标</label>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+"use strict";
+
+/* ───────── 默认的点 ─────────
+   现在是 y = x 上的 11 个点：(-5, -5) 到 (5, 5)。
+   以后要换点，改下面这段就行，一行一个 "x, y"。
+   （网页上的输入框也能直接改；改过的点会记在网址里，刷新不会丢。） */
+const DEFAULT_POINTS = `-5, -5
+-4, -4
+-3, -3
+-2, -2
+-1, -1
+0, 0
+1, 1
+2, 2
+3, 3
+4, 4
+5, 5`;
+
+const PRESETS = [
+  ["y = x：(−5, −5) 到 (5, 5)，11 个点", DEFAULT_POINTS],
+  ["两个点：(1, 2) 和 (4, 3)", "1, 2\n4, 3"],
+  ["y = 2x：(1, 2), (2, 4) … (5, 10)", "1, 2\n2, 4\n3, 6\n4, 8\n5, 10"],
+  ["尺度悬殊：(0.000001, 10), (0.0000002, 20)", "0.000001, 10\n0.0000002, 20"],
+];
+
+// ───────── 版面参数（像素）─────────
+const MARGIN = { top: 34, right: 36, bottom: 34, left: 44 };
+const MIN_SQUARE_SIDE = 96;  // 正方形格子时，图最窄的一边至少这么宽；再窄就改用长方形格子
+const ARROW = 12;            // 坐标轴箭头伸出图框的长度
+const MAX_LABELED = 60;      // 点再多就不逐个标坐标
+const FONT = '12px system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+const DEFAULT_LIM = { xmin: -5, xmax: 5, ymin: -5, ymax: 5 };
+// 坐标标签相对点的位置 [dx, dy, 对齐]，按优先顺序：右下、左上、右上、左下、右、左、上、下
+const LABEL_SPOTS = [
+  [8, 15, "start"], [-8, -8, "end"], [8, -8, "start"], [-8, 15, "end"],
+  [10, 4, "start"], [-10, 4, "end"], [0, -11, "middle"], [0, 20, "middle"],
+];
+// 相邻网格线至少隔多远：小屏幕上放宽一点，好让 1×1 的格子还能画出来
+const minGridPx = (W, H) => (Math.min(W, H) < 500 ? 20 : 28);
+
+/* ───────── 数字：解析和显示 ───────── */
+
+const NUM_RE = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?$/i;
+
+// 全角字符、中文逗号、各种减号统一成普通写法
+function normalize(s) {
+  return s.normalize("NFKC").replace(/[‐-―−]/g, "-").replace(/、/g, ",");
+}
+
+function toNumber(token) {
+  if (!NUM_RE.test(token)) return null;
+  const v = Number(token);
+  return Number.isFinite(v) ? v : null;
+}
+
+const SUP = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const sup = n => String(n).replace(/[-0-9]/g, c => SUP[c]);
+const pretty = s => s.replace(/-/g, "−");        // 显示用的正规减号 −
+const pow10 = e => Number(`1e${e}`);
+const exp10 = v => Math.floor(Math.log10(v) + 1e-9);  // 正数的数量级：0.2 → -1，5 → 0
+const isMultiple = (v, q) => { const r = v / q; return Math.abs(r - Math.round(r)) < 1e-6; };
+const stripZeros = s => (s.includes(".") ? s.replace(/\.?0+$/, "") : s);
+
+// 坐标、范围：最多 10 位有效数字，去掉末尾的 0（不会出现 0.30000000000000004）
+function fmtNum(v) {
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e-7 && a < 1e12) {
+    const s = stripZeros(v.toFixed(Math.min(20, Math.max(0, 9 - Math.floor(Math.log10(a))))));
+    return s === "-0" ? "0" : s;
+  }
+  return v.toExponential(9).replace(/\.?0+e/, "e").replace("e+", "e");
+}
+const show = v => pretty(fmtNum(v));
+const pointText = p => `(${show(p.x)}, ${show(p.y)})`;
+
+// 刻度上的数字：小数位数跟着步长走；太大或太小就写成 2×10⁻⁷
+function tickFormatter(lo, hi, step) {
+  const se = exp10(step);
+  const sci = se < -6 || Math.max(Math.abs(lo), Math.abs(hi)) >= 1e7;
+  return v => {
+    if (Math.abs(v) < step * 1e-6) return "0";
+    if (!sci) return pretty(stripZeros(v.toFixed(Math.max(0, -se))));
+    let e = exp10(Math.abs(v));
+    let m = (v / pow10(e)).toFixed(Math.max(0, e - se));
+    if (Math.abs(Number(m)) >= 10) { e += 1; m = (v / pow10(e)).toFixed(Math.max(0, e - se)); }
+    return `${pretty(stripZeros(m))}×10${sup(e)}`;
+  };
+}
+
+// 倍数写成中文习惯：9.2 倍、1800 万倍、18 亿倍
+function fmtRatio(r) {
+  if (r < 10) return `${stripZeros(r.toFixed(1))} 倍`;
+  if (r < 1e4) return `${Math.round(r)} 倍`;
+  if (r < 1e8) return `${Number((r / 1e4).toPrecision(2))} 万倍`;
+  if (r < 1e12) return `${Number((r / 1e8).toPrecision(2))} 亿倍`;
+  const e = Math.floor(Math.log10(r));
+  return `${stripZeros((r / pow10(e)).toFixed(1))}×10${sup(e)} 倍`;
+}
+
+// 解析输入框：一行一个点 "x, y"；一行也可以写多个 "(x, y)"，或者用 ; 隔开；# 后面是注释
+function parsePoints(text) {
+  const points = [], errors = [];
+  normalize(text).split("\n").forEach((raw, i) => {
+    const line = raw.replace(/#.*/, "").trim();
+    if (!line) return;
+    const where = `第 ${i + 1} 行`;
+    let groups = line.split(";");
+    if (/[()]/.test(line)) {
+      groups = [];
+      const rest = line.replace(/\(([^()]*)\)/g, (_, g) => { groups.push(g); return " "; });
+      if (/[^\s,;]/.test(rest)) {
+        errors.push(`${where}：括号没配对，或者括号外面还有别的字`);
+        return;
+      }
+    }
+    for (const g of groups) {
+      const tokens = g.split(/[\s,]+/).filter(Boolean);
+      if (!tokens.length) continue;
+      if (tokens.length !== 2) {
+        errors.push(`${where}：“${g.trim()}”应该正好是两个数 x, y（现在是 ${tokens.length} 个）`);
+        continue;
+      }
+      const [x, y] = tokens.map(toNumber);
+      if (x === null || y === null) {
+        errors.push(`${where}：“${x === null ? tokens[0] : tokens[1]}”不是有效的数字`);
+        continue;
+      }
+      points.push({ x, y });
+    }
+  });
+  return { points, errors };
+}
+
+/* ───────── 网格步长 ───────── */
+
+// “整齐”的步长：1、2、5 × 10ⁿ
+function niceAtLeast(x) {
+  if (!(x > 0) || !Number.isFinite(x)) return 1;
+  for (let e = exp10(x) - 1; ; e++) {
+    for (const m of [1, 2, 5]) {
+      const v = Number(`${m}e${e}`);
+      if (v >= x * (1 - 1e-9)) return v;
+    }
+  }
+}
+
+function nextNice(v) {
+  const e = exp10(v), m = Math.round(v / pow10(e));
+  return Number(m < 2 ? `2e${e}` : m < 5 ? `5e${e}` : `1e${e + 1}`);
+}
+
+// 所有数都是 q 的整数倍时，返回这种 q 里最大的整齐数；找不到返回 null
+function granularity(values) {
+  let maxAbs = 0;
+  for (const v of values) maxAbs = Math.max(maxAbs, Math.abs(v));
+  if (!(maxAbs > 0) || !Number.isFinite(maxAbs)) return null;
+  const top = exp10(maxAbs);
+  for (let e = top; e >= top - 15; e--) {
+    for (const m of [5, 2, 1]) {
+      const q = Number(`${m}e${e}`);
+      if (values.every(v => isMultiple(v, q))) return q;
+    }
+  }
+  return null;
+}
+
+// 点都是整数（或 0.5 的倍数……）时，网格尽量不比它更细，免得把 1×1 的格子切碎
+function dataHints(points) {
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const cap = q => (q === null ? null : Math.min(q, 1));
+  return { x: cap(granularity(xs)), y: cap(granularity(ys)), xy: cap(granularity(xs.concat(ys))) };
+}
+
+function ticks(lo, hi, step) {
+  const k0 = Math.ceil(lo / step - 1e-9), k1 = Math.floor(hi / step + 1e-9);
+  if (!(k1 >= k0) || k1 - k0 > 4000) return [];
+  const out = [];
+  for (let k = k0; k <= k1; k++) out.push(k * step);
+  return out;
+}
+
+const measureCtx = document.createElement("canvas").getContext("2d");
+const widthCache = new Map();
+function textWidth(s) {
+  let w = widthCache.get(s);
+  if (w === undefined) {
+    if (widthCache.size > 4000) widthCache.clear();
+    measureCtx.font = FONT;
+    w = measureCtx.measureText(s).width;
+    widthCache.set(s, w);
+  }
+  return w;
+}
+
+function maxLabelWidth(lo, hi, step) {
+  const f = tickFormatter(lo, hi, step);
+  let w = 0;
+  for (const v of ticks(lo, hi, step)) w = Math.max(w, textWidth(f(v)));
+  return w;
+}
+
+function gridStep(pxPerUnit, span, hint, minPx) {
+  const st = niceAtLeast(minPx / pxPerUnit);
+  return hint && hint > st && span / hint >= 2 ? hint : st;
+}
+
+// 标数字的步长：网格步长的整数倍，保证数字之间不挤
+function labelStep(grid, pxPerUnit, needPx) {
+  let st = grid;
+  for (let i = 0; i < 12 && st * pxPerUnit < needPx(st); i++) {
+    do st = nextNice(st); while (!isMultiple(st, grid));
+  }
+  return st;
+}
+
+function pickSteps(lim, sx, sy, square, hints, minPx) {
+  const xNeed = st => maxLabelWidth(lim.xmin, lim.xmax, st) + 12;
+  if (square) {
+    // 正方形格子：x、y 用同一个步长
+    const g = gridStep(sx, Math.min(lim.xmax - lim.xmin, lim.ymax - lim.ymin), hints.xy, minPx);
+    const lab = labelStep(g, sx, xNeed);
+    return { xGrid: g, yGrid: g, xLabel: lab, yLabel: lab };
+  }
+  const gx = gridStep(sx, lim.xmax - lim.xmin, hints.x, minPx);
+  const gy = gridStep(sy, lim.ymax - lim.ymin, hints.y, minPx);
+  return { xGrid: gx, yGrid: gy, xLabel: labelStep(gx, sx, xNeed), yLabel: labelStep(gy, sy, () => 18) };
+}
+
+/* ───────── 版面：图框放在哪、1 个单位是多少像素 ───────── */
+
+function computeLayout(lim, W, H, wantSquare, hints) {
+  let left = MARGIN.left, L;
+  for (let pass = 0; pass < 3; pass++) {  // y 轴的数字太长时，左边多留点地方
+    L = layoutPass(lim, W, H, wantSquare, hints, left);
+    const need = Math.ceil(L.yLabelWidth + 14);
+    if (need <= left) break;
+    left = need;
+  }
+  return L;
+}
+
+function layoutPass(lim, W, H, wantSquare, hints, left) {
+  const aw = Math.max(40, W - left - MARGIN.right);
+  const ah = Math.max(40, H - MARGIN.top - MARGIN.bottom);
+  const dx = lim.xmax - lim.xmin, dy = lim.ymax - lim.ymin;
+  let square = false, squareFail = null;
+  let bw = aw, bh = ah, sx = aw / dx, sy = ah / dy;
+  if (wantSquare) {
+    // x、y 每个单位一样多像素；范围是什么比例，图框就是什么形状，范围本身一点不改
+    const s = Math.min(aw / dx, ah / dy), w = s * dx, h = s * dy;
+    if (Math.min(w, h) >= Math.min(MIN_SQUARE_SIDE, 0.5 * Math.min(aw, ah))) {
+      square = true; bw = w; bh = h; sx = sy = s;
+    } else {
+      squareFail = { ratio: Math.max(dx / dy, dy / dx), thin: Math.min(w, h), narrow: w < h };
+    }
+  }
+  const bx = left + (aw - bw) / 2, by = MARGIN.top + (ah - bh) / 2;
+  const steps = pickSteps(lim, sx, sy, square, hints, minGridPx(W, H));
+  return {
+    lim, W, H, bx, by, bw, bh, sx, sy, square, squareFail, ...steps,
+    yLabelWidth: maxLabelWidth(lim.ymin, lim.ymax, steps.yLabel),
+    X: x => bx + (x - lim.xmin) * sx,
+    Y: y => by + bh - (y - lim.ymin) * sy,
+  };
+}
+
+// 范围必须是有限的数，而且不能窄到超出计算精度
+const rangeOk = (lo, hi) =>
+  Number.isFinite(lo) && Number.isFinite(hi) && hi - lo > Math.max(Math.abs(lo), Math.abs(hi)) * 1e-12;
+const clean = v => Number(v.toPrecision(15));
+
+// 自动范围的一边：离 0 不远就从 0 开始（能看到原点和坐标轴），再往外留一点边
+function padRange(lo, hi) {
+  const span = hi - lo;
+  // 和 Excel 的规则一样：最小值不到跨度的 5 倍，就从 0 开始画
+  if (lo > 0 && (span === 0 || lo < 5 * span)) lo = 0;
+  else if (hi < 0 && (span === 0 || -hi < 5 * span)) hi = 0;
+  if (lo === hi) return [lo - 1, hi + 1];
+  const pad = (hi - lo) * 0.08;
+  return [lo === 0 ? 0 : lo - pad, hi === 0 ? 0 : hi + pad];
+}
+
+function fitLimits(points, W, H, wantSquare, hints) {
+  if (!points.length) return { ...DEFAULT_LIM };
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of points) {
+    x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+  }
+  [x0, x1] = padRange(x0, x1);
+  [y0, y1] = padRange(y0, y1);
+  if (!rangeOk(x0, x1) || !rangeOk(y0, y1)) return { ...DEFAULT_LIM };
+  // 边界对齐到网格线上，整张图就是一张完整的方格纸
+  const L = computeLayout({ xmin: x0, xmax: x1, ymin: y0, ymax: y1 }, W, H, wantSquare, hints);
+  return {
+    xmin: clean(Math.floor(x0 / L.xGrid + 1e-9) * L.xGrid),
+    xmax: clean(Math.ceil(x1 / L.xGrid - 1e-9) * L.xGrid),
+    ymin: clean(Math.floor(y0 / L.yGrid + 1e-9) * L.yGrid),
+    ymax: clean(Math.ceil(y1 / L.yGrid - 1e-9) * L.yGrid),
+  };
+}
+
+/* ───────── 画图（SVG）───────── */
+
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]);
+  if (text !== undefined) n.textContent = text;
+  parent.appendChild(n);
+  return n;
+}
+const crisp = v => Math.round(v - 0.5) + 0.5;  // 1 像素的线落在像素正中，不发虚
+const r2 = v => Math.round(v * 100) / 100;
+
+// 线段裁剪到矩形里（Liang–Barsky）；完全在外面返回 null
+function clipSegment(ax, ay, bx, by, x0, x1, y0, y1) {
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dy = by - ay;
+  for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dy, ay - y0], [dy, y1 - ay]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; }
+    else { if (r < t0) return null; if (r < t1) t1 = r; }
+  }
+  return { ax: ax + t0 * dx, ay: ay + t0 * dy, bx: ax + t1 * dx, by: ay + t1 * dy, startIn: t0 === 0, endIn: t1 === 1 };
+}
+const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
+const segHitsBox = (s, b) => clipSegment(s[0], s[1], s[2], s[3], b.x0, b.x1, b.y0, b.y1) !== null;
+
+function textBox(s, x, y, anchor) {
+  const w = textWidth(s);
+  const x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+  return { x0: x0 - 2, y0: y - 11, x1: x0 + w + 2, y1: y + 4 };
+}
+
+// 写一段字，并把它占的地方记进 taken（给点的坐标标签让位）
+function addText(parent, s, x, y, anchor, taken) {
+  el("text", { x: r2(x), y: r2(y), "text-anchor": anchor }, parent, s);
+  taken.push(textBox(s, x, y, anchor));
+}
+
+function draw(L, points) {
+  const { W, H, bx, by, bw, bh, X, Y, lim } = L;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.replaceChildren();
+
+  // 网格
+  const grid = el("g", { class: "grid" }, svg);
+  for (const v of ticks(lim.xmin, lim.xmax, L.xGrid)) {
+    const x = crisp(X(v));
+    el("line", { x1: x, y1: r2(by), x2: x, y2: r2(by + bh) }, grid);
+  }
+  for (const v of ticks(lim.ymin, lim.ymax, L.yGrid)) {
+    const y = crisp(Y(v));
+    el("line", { x1: r2(bx), y1: y, x2: r2(bx + bw), y2: y }, grid);
+  }
+  const fx0 = crisp(bx), fy0 = crisp(by);
+  el("rect", { class: "frame", x: fx0, y: fy0, width: crisp(bx + bw) - fx0, height: crisp(by + bh) - fy0 }, svg);
+
+  // 坐标轴：x 轴就是 y = 0 那条线，y 轴就是 x = 0 那条线
+  const hasX = lim.ymin <= 0 && lim.ymax >= 0;
+  const hasY = lim.xmin <= 0 && lim.xmax >= 0;
+  const X0 = crisp(X(0)), Y0 = crisp(Y(0));
+  const axes = el("g", { class: "axis" }, svg);
+  const axisSegs = [];
+  if (hasX) {
+    const tip = r2(bx + bw + ARROW);
+    el("line", { x1: r2(bx), y1: Y0, x2: tip - 6, y2: Y0 }, axes);
+    el("path", { d: `M${tip},${Y0}l-9,-4.5v9z` }, axes);
+    axisSegs.push([bx, Y0, tip, Y0]);
+  }
+  if (hasY) {
+    const tip = r2(by - ARROW);
+    el("line", { x1: X0, y1: r2(by + bh), x2: X0, y2: tip + 6 }, axes);
+    el("path", { d: `M${X0},${tip}l-4.5,9h9z` }, axes);
+    axisSegs.push([X0, by + bh, X0, tip]);
+  }
+
+  // 刻度数字：坐标轴在图中间时沿着轴写（课本上的样子），否则写在图框外面
+  const taken = [];
+  const tickG = el("g", { class: "tick halo" }, svg);
+  const midX = lim.ymin < 0 && lim.ymax > 0;
+  const midY = lim.xmin < 0 && lim.xmax > 0;
+  const fx = tickFormatter(lim.xmin, lim.xmax, L.xLabel);
+  const fy = tickFormatter(lim.ymin, lim.ymax, L.yLabel);
+  const rowY = midX ? Y0 + 16 : by + bh + 17;
+  for (const v of ticks(lim.xmin, lim.xmax, L.xLabel)) {
+    const zero = Math.abs(v) < L.xLabel * 1e-6;
+    if (zero && midX && midY) addText(tickG, "0", X0 - 6, rowY, "end", taken);  // 原点的 0 写在左下角
+    else addText(tickG, fx(v), X(v), rowY, "middle", taken);
+  }
+  const colX = midY ? X0 - 7 : bx - 7;
+  for (const v of ticks(lim.ymin, lim.ymax, L.yLabel)) {
+    if (Math.abs(v) < L.yLabel * 1e-6 && hasX && hasY) continue;  // 原点只写一个 0
+    addText(tickG, fy(v), colX, Y(v) + 4, "end", taken);
+  }
+
+  const titles = el("g", { class: "axis-title" }, svg);
+  el("text", hasX ? { x: r2(bx + bw + ARROW + 5), y: Y0 + 5 } : { x: r2(bx + bw + 6), y: r2(by + bh + 5) }, titles, "x");
+  el("text", { x: hasY ? X0 : r2(bx), y: r2(hasY ? by - ARROW - 7 : by - 9), "text-anchor": "middle" }, titles, "y");
+
+  // 按输入的顺序连线（只画图框里的部分）
+  const segs = [];
+  if (state.connect && points.length > 1) {
+    let d = "", joined = false;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i];
+      const c = clipSegment(a.x, a.y, b.x, b.y, lim.xmin, lim.xmax, lim.ymin, lim.ymax);
+      const p0 = c && [r2(X(c.ax)), r2(Y(c.ay))], p1 = c && [r2(X(c.bx)), r2(Y(c.by))];
+      if (!c || ![...p0, ...p1].every(Number.isFinite)) { joined = false; continue; }
+      d += (joined && c.startIn ? "" : `M${p0}`) + `L${p1}`;
+      joined = c.endIn;
+      segs.push([...p0, ...p1]);
+    }
+    if (d) el("path", { class: "conn", d }, svg);
+  }
+
+  // 点
+  const tx = (lim.xmax - lim.xmin) * 1e-9, ty = (lim.ymax - lim.ymin) * 1e-9;
+  const visible = [];
+  let outside = 0;
+  for (const p of points) {
+    if (p.x < lim.xmin - tx || p.x > lim.xmax + tx || p.y < lim.ymin - ty || p.y > lim.ymax + ty) outside++;
+    else visible.push({ x: p.x, y: p.y, px: X(p.x), py: Y(p.y) });
+  }
+  const ptG = el("g", {}, svg);
+  for (const p of visible) el("circle", { class: "pt", cx: r2(p.px), cy: r2(p.py), r: 4.5 }, ptG);
+
+  // 每个点旁边写坐标：挑一个不压别的字、别的点的位置，尽量也不压线
+  let skipped = 0;
+  const tooMany = state.labels && visible.length > MAX_LABELED;
+  if (state.labels && !tooMany) {
+    const dots = visible.map(p => ({ x0: p.px - 6, y0: p.py - 6, x1: p.px + 6, y1: p.py + 6 }));
+    const strokes = segs.concat(axisSegs);
+    const labG = el("g", { class: "pt-label halo" }, svg);
+    const done = new Set();
+    for (const p of visible) {
+      const key = `${Math.round(p.px)},${Math.round(p.py)}`;
+      if (done.has(key)) continue;  // 重复的点只标一次
+      done.add(key);
+      const s = pointText(p);
+      let best = null, bestCost = Infinity;
+      for (const [dx, dy, anchor] of LABEL_SPOTS) {
+        const box = textBox(s, p.px + dx, p.py + dy, anchor);
+        if (box.x0 < 0 || box.y0 < 0 || box.x1 > W || box.y1 > H) continue;
+        if (taken.some(o => overlaps(box, o)) || dots.some(o => overlaps(box, o))) continue;
+        const cost = strokes.filter(sg => segHitsBox(sg, box)).length;
+        if (cost < bestCost) { best = [p.px + dx, p.py + dy, anchor]; bestCost = cost; if (!cost) break; }
+      }
+      if (best) addText(labG, s, best[0], best[1], best[2], taken);
+      else skipped++;
+    }
+  }
+
+  hoverLayer = el("g", {}, svg);
+  return { visible, outside, skipped, tooMany };
+}
+
+/* ───────── 页面状态和交互 ───────── */
+
+const $ = id => document.getElementById(id);
+const wrap = $("plotWrap"), svg = $("plot"), ta = $("pointsInput");
+const pointsMsg = $("pointsMsg"), preset = $("preset"), limMsg = $("limMsg");
+const cellInfo = $("cellInfo"), cursorInfo = $("cursorInfo"), notices = $("notices");
+const autoBox = $("autoRange"), squareBox = $("squareMode"), connectBox = $("connect"), labelsBox = $("labels");
+const limInputs = { xmin: $("xmin"), xmax: $("xmax"), ymin: $("ymin"), ymax: $("ymax") };
+
+const state = { text: DEFAULT_POINTS, auto: true, lim: { ...DEFAULT_LIM }, square: true, connect: true, labels: true };
+let view = null;         // 最近一次画出来的版面，鼠标悬停时要用
+let hoverLayer = null;
+
+function lines(parent, texts, cls) {
+  parent.replaceChildren(...texts.map(t => {
+    const d = document.createElement("div");
+    if (cls) d.className = cls;
+    d.textContent = t;
+    return d;
+  }));
+}
+
+function showParse(points, errors) {
+  const out = [];
+  if (errors.length) {
+    out.push(`读到 ${points.length} 个点，有 ${errors.length} 处看不懂：`, ...errors.slice(0, 4));
+    if (errors.length > 4) out.push(`……还有 ${errors.length - 4} 处`);
+  } else {
+    out.push(points.length ? `共 ${points.length} 个点` : "还没有点。在上面输入，比如 1, 2");
+  }
+  pointsMsg.className = errors.length ? "msg error" : "msg";
+  lines(pointsMsg, out);
+  ta.setAttribute("aria-invalid", errors.length ? "true" : "false");
+}
+
+function showInfo(L, res) {
+  const f = st => tickFormatter(st, st, st)(st);
+  cellInfo.textContent = L.square
+    ? `正方形格子：每格 ${f(L.xGrid)} × ${f(L.yGrid)}`
+    : `长方形格子：每格宽 ${f(L.xGrid)}（x）、高 ${f(L.yGrid)}（y）`;
+  const notes = [];
+  if (L.squareFail) {
+    const { ratio, thin, narrow } = L.squareFail;
+    notes.push(thin < 20
+      ? `x、y 的范围相差约 ${fmtRatio(ratio)}，硬要正方形格子的话图会被压成一条线，所以现在 x、y 各用各的比例（格子是长方形的）。`
+      : `x、y 的范围相差约 ${fmtRatio(ratio)}，用正方形格子的话图只剩 ${Math.round(thin)} 像素${narrow ? "宽" : "高"}，所以现在 x、y 各用各的比例（格子是长方形的）。把窗口放大或改一下范围，就能变回正方形。`);
+  }
+  if (res.outside) {
+    notes.push(state.auto
+      ? `有 ${res.outside} 个点的数太大，画不出来。`
+      : `有 ${res.outside} 个点不在当前范围里，没画出来。勾上「自动范围」就能全部看到。`);
+  }
+  if (res.tooMany) notes.push(`点比较多（${res.visible.length} 个），就不一个个标坐标了；鼠标移到点上可以看。`);
+  else if (res.skipped) notes.push(`有 ${res.skipped} 个点旁边放不下坐标，鼠标移到点上可以看。`);
+  lines(notices, notes, "notice");
+}
+
+function readLimitInputs() {
+  const v = {};
+  for (const k in limInputs) v[k] = toNumber(normalize(limInputs[k].value.trim()));
+  const errs = [], bad = new Set();
+  for (const [a, b, name] of [["xmin", "xmax", "x"], ["ymin", "ymax", "y"]]) {
+    if (v[a] === null || v[b] === null) {
+      errs.push(`${name} 的范围要填数字`);
+      if (v[a] === null) bad.add(a);
+      if (v[b] === null) bad.add(b);
+    } else if (v[a] >= v[b]) {
+      errs.push(`${name} 的最小值要比最大值小`);
+      bad.add(a); bad.add(b);
+    } else if (!rangeOk(v[a], v[b])) {
+      errs.push(`${name} 的范围太窄，算不准了`);
+      bad.add(a); bad.add(b);
+    }
+  }
+  for (const k in limInputs) limInputs[k].setAttribute("aria-invalid", bad.has(k) ? "true" : "false");
+  return errs.length ? { errs } : { lim: v };
+}
+
+function syncLimitInputs() {
+  for (const k in limInputs) {
+    const input = limInputs[k];
+    if (document.activeElement === input) continue;  // 正在输入的框不去动它
+    input.value = fmtNum(state.lim[k]);
+    input.setAttribute("aria-invalid", "false");
+  }
+  if (state.auto) limMsg.textContent = "";
+}
+
+function syncControls() {
+  ta.value = state.text;
+  autoBox.checked = state.auto;
+  squareBox.checked = state.square;
+  connectBox.checked = state.connect;
+  labelsBox.checked = state.labels;
+}
+
+// 改过的点和设置记在网址 # 后面：刷新不会丢，也能把链接发给别人
+function saveToUrl() {
+  const p = new URLSearchParams();
+  if (state.text !== DEFAULT_POINTS) p.set("pts", state.text);
+  if (!state.auto) {
+    p.set("x", `${fmtNum(state.lim.xmin)},${fmtNum(state.lim.xmax)}`);
+    p.set("y", `${fmtNum(state.lim.ymin)},${fmtNum(state.lim.ymax)}`);
+  }
+  if (!state.square) p.set("square", "0");
+  if (!state.connect) p.set("line", "0");
+  if (!state.labels) p.set("labels", "0");
+  const hash = p.toString();
+  try {
+    history.replaceState(null, "", location.pathname + location.search + (hash ? `#${hash}` : ""));
+  } catch { /* 有的环境（比如直接打开本地文件）不让改网址，不影响画图 */ }
+}
+
+function loadFromUrl() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  state.text = p.get("pts") ?? DEFAULT_POINTS;
+  const pair = key => {
+    const nums = normalize(p.get(key) || "").split(/[\s,;]+/).filter(Boolean).map(toNumber);
+    return nums.length === 2 && nums[0] !== null && nums[1] !== null && rangeOk(nums[0], nums[1]) ? nums : null;
+  };
+  const xr = pair("x"), yr = pair("y");
+  state.auto = !(xr && yr);
+  if (xr && yr) state.lim = { xmin: xr[0], xmax: xr[1], ymin: yr[0], ymax: yr[1] };
+  state.square = p.get("square") !== "0";
+  state.connect = p.get("line") !== "0";
+  state.labels = p.get("labels") !== "0";
+}
+
+function update() {
+  const { points, errors } = parsePoints(state.text);
+  showParse(points, errors);
+  const W = Math.floor(wrap.clientWidth), H = Math.floor(wrap.clientHeight);
+  if (W < 80 || H < 80) return;
+  const hints = dataHints(points);
+  if (state.auto) state.lim = fitLimits(points, W, H, state.square, hints);
+  const L = computeLayout(state.lim, W, H, state.square, hints);
+  const res = draw(L, points);
+  view = { L, visible: res.visible };
+  showInfo(L, res);
+  syncLimitInputs();
+  const { lim } = L;
+  svg.setAttribute("aria-label",
+    `坐标图：${points.length} 个点；x 从 ${show(lim.xmin)} 到 ${show(lim.xmax)}，y 从 ${show(lim.ymin)} 到 ${show(lim.ymax)}；${cellInfo.textContent}`);
+}
+
+// 鼠标（或手指）靠近一个点就显示它的坐标；在空白处显示鼠标所在的位置
+function onPointer(e) {
+  if (!view || !hoverLayer) return;
+  const { L, visible } = view;
+  const r = svg.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  hoverLayer.replaceChildren();
+  let best = null, bestD = 12 * 12;
+  for (const p of visible) {
+    const d = (p.px - mx) ** 2 + (p.py - my) ** 2;
+    if (d <= bestD) { bestD = d; best = p; }
+  }
+  if (best) {
+    const s = pointText(best), w = textWidth(s) + 16;
+    const tipX = Math.max(2, Math.min(L.W - w - 2, best.px - w / 2));
+    const tipY = best.py - 36 < 2 ? best.py + 14 : best.py - 36;
+    el("circle", { class: "hover-ring", cx: r2(best.px), cy: r2(best.py), r: 9 }, hoverLayer);
+    el("rect", { class: "tip-bg", x: r2(tipX), y: r2(tipY), width: r2(w), height: 22, rx: 6 }, hoverLayer);
+    el("text", { class: "tip-text", x: r2(tipX + w / 2), y: r2(tipY + 15), "text-anchor": "middle" }, hoverLayer, s);
+    cursorInfo.textContent = `点 ${s}`;
+    return;
+  }
+  if (mx < L.bx || mx > L.bx + L.bw || my < L.by || my > L.by + L.bh) { cursorInfo.textContent = ""; return; }
+  const x = L.lim.xmin + (mx - L.bx) / L.sx, y = L.lim.ymin + (L.by + L.bh - my) / L.sy;
+  const fx = tickFormatter(L.lim.xmin, L.lim.xmax, L.xGrid / 10);
+  const fy = tickFormatter(L.lim.ymin, L.lim.ymax, L.yGrid / 10);
+  cursorInfo.textContent = `鼠标 ≈ (${fx(x)}, ${fy(y)})`;
+}
+
+ta.addEventListener("input", () => { state.text = ta.value; update(); saveToUrl(); });
+
+preset.addEventListener("change", () => {
+  const item = PRESETS[Number(preset.value)];
+  preset.value = "";
+  if (!item) return;
+  state.text = item[1];
+  state.auto = true;
+  syncControls();
+  update();
+  saveToUrl();
+});
+
+for (const k in limInputs) {
+  limInputs[k].addEventListener("input", () => {
+    const r = readLimitInputs();
+    limMsg.textContent = r.errs ? r.errs.join("；") : "";
+    if (r.errs) return;
+    state.lim = r.lim;
+    state.auto = false;
+    autoBox.checked = false;
+    update();
+    saveToUrl();
+  });
+}
+
+autoBox.addEventListener("change", () => { state.auto = autoBox.checked; update(); saveToUrl(); });
+squareBox.addEventListener("change", () => { state.square = squareBox.checked; update(); saveToUrl(); });
+connectBox.addEventListener("change", () => { state.connect = connectBox.checked; update(); saveToUrl(); });
+labelsBox.addEventListener("change", () => { state.labels = labelsBox.checked; update(); saveToUrl(); });
+
+svg.addEventListener("pointermove", onPointer);
+svg.addEventListener("pointerdown", onPointer);
+svg.addEventListener("pointerleave", () => { hoverLayer?.replaceChildren(); cursorInfo.textContent = ""; });
+window.addEventListener("hashchange", () => { loadFromUrl(); syncControls(); update(); });
+
+let frame = 0;
+new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(update); }).observe(wrap);
+
+PRESETS.forEach(([name], i) => preset.add(new Option(name, String(i))));
+loadFromUrl();
+syncControls();
+update();
+})();
+</script>
 </body>
 </html>
